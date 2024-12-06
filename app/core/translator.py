@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
-import os
+from typing import List, Dict, Optional
+
 import dashscope
+
 from app.utils.logger import setup_logger
 
 
@@ -49,14 +50,8 @@ class Translator:
 - 是否保留原文格式：{'是' if preferences.keep_formatting else '否'}
 
 请按照以下格式回复：
-中文翻译：
 [翻译内容]
-
-注释说明：（如有）
-[相关注释]
-
-专业术语解释：（如有）
-[术语解释]"""
+"""
 
         return prompt
 
@@ -87,43 +82,44 @@ class Translator:
                 model="qwen-max",
                 messages=messages,
                 result_format='message',
-                stream=True
+                stream=False
             )
 
             # 处理流式响应
-            full_response = []
-            for chunk in response:
-                if chunk.status_code == 200:
-                    # 获取当前片段的内容
-                    chunk_content = chunk.output.choices[0]['message']['content']
-                    full_response.append(chunk_content)
-                    # 可以在这里添加实时处理逻辑，比如打印或回调
-                    self.logger.debug(f"Received chunk: {chunk_content}")
-                else:
-                    self.logger.error(f"Translation chunk failed: {chunk.code} - {chunk.message}")
-                    raise Exception(f"Translation chunk failed: {chunk.message}")
+            # full_response = []
+            # for chunk in response:
+            if response.status_code == 200:
+                # 获取当前片段的内容
+                # chunk_content = chunk.output.choices[0]['message']['content']
+                # full_response.append(chunk_content)
+                translated_text = response.output.choices[0]['message']['content']
+                # 可以在这里添加实时处理逻辑，比如打印或回调
+                self.logger.info(f"Translation successful: {len(text)} chars")
+                return translated_text
+            else:
+                self.logger.error(f"Translation chunk failed: {response.code} - {response.message}")
+                raise Exception(f"Translation chunk failed: {response.message}")
 
-            translated_text = ''.join(full_response)
-            self.logger.info(f"Translation successful: {len(text)} chars")
-            return translated_text
+        # translated_text = ''.join(full_response)
 
         except Exception as e:
             self.logger.error(f"Error during translation: {str(e)}")
-            raise
+        raise
 
-    def batch_translate(self, texts: List[str], preferences: Optional[TranslationPreferences] = None) -> List[str]:
-        """
-        Translate a batch of texts using specified preferences.
 
-        Args:
-            texts: List of texts to translate
-            preferences: Translation preferences
+def batch_translate(self, texts: List[str], preferences: Optional[TranslationPreferences] = None) -> List[str]:
+    """
+    Translate a batch of texts using specified preferences.
 
-        Returns:
-            List of translated texts
-        """
-        translated_texts = []
-        for text in texts:
-            translated = self.translate(text, preferences)
-            translated_texts.append(translated)
-        return translated_texts
+    Args:
+        texts: List of texts to translate
+        preferences: Translation preferences
+
+    Returns:
+        List of translated texts
+    """
+    translated_texts = []
+    for text in texts:
+        translated = self.translate(text, preferences)
+        translated_texts.append(translated)
+    return translated_texts

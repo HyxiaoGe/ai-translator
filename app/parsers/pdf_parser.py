@@ -99,10 +99,10 @@ class PDFParser(BaseParser):
 
                             # 创建翻译后的 span
                             for span in line["spans"]:
-                                # 原始文本 span
-                                line_spans.append({
+                                # 翻译文本 span
+                                translated_span = {
                                     'type': 'text',
-                                    'content': span['text'],
+                                    'content': translated_text,
                                     'page_number': page_num,
                                     'page_info': page_info,
                                     'style': {
@@ -115,26 +115,6 @@ class PDFParser(BaseParser):
                                             'y0': span['bbox'][1],
                                             'x1': span['bbox'][2],
                                             'y1': span['bbox'][3]
-                                        }
-                                    }
-                                })
-
-                                # 翻译文本 span (在原文下方)
-                                translated_span = {
-                                    'type': 'text',
-                                    'content': translated_text,
-                                    'page_number': page_num,
-                                    'page_info': page_info,
-                                    'style': {
-                                        'font': span['font'],
-                                        'size': span['size'],
-                                        'color': '#0066cc',  # 使用不同颜色区分翻译
-                                        'flags': span.get('flags', 0),
-                                        'bbox': {
-                                            'x0': span['bbox'][0],
-                                            'y0': span['bbox'][1] + span['size'] + 2,  # 向下偏移
-                                            'x1': span['bbox'][2],
-                                            'y1': span['bbox'][3] + span['size'] + 2
                                         }
                                     }
                                 }
