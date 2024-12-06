@@ -2,13 +2,21 @@ import fitz  # PyMuPDF
 import base64
 from typing import List, Dict, Any, Optional
 from .base import BaseParser
+from ..core.translator import Translator, TranslationPreferences
 
 
 class PDFParser(BaseParser):
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, translator: Optional[Translator] = None):
         super().__init__(file_path)
         self.logger.info("Opening PDF file...")
         self.doc = fitz.open(self.file_path)
+        self.translator = translator or Translator()
+        self.translation_preferences = TranslationPreferences(
+            source_lang='en',
+            target_lang='zh',
+            formality_level='正式',
+            domain='技术'
+        )
         self.logger.info(f"PDF opened successfully. Total pages: {len(self.doc)}")
 
     def _extract_images(self, page: fitz.Page) -> List[Dict[str, Any]]:
@@ -51,7 +59,6 @@ class PDFParser(BaseParser):
         for page_num, page in enumerate(self.doc, 1):
             self.logger.info(f"Processing page {page_num}/{len(self.doc)}")
 
-            # Get page dimensions
             page_rect = page.rect
             page_info = {
                 'width': page_rect.width,
@@ -66,33 +73,74 @@ class PDFParser(BaseParser):
                 **img
             } for img in images])
 
-            # Extract text blocks with style information
+            # Extract and translate text blocks
             blocks = page.get_text("dict")["blocks"]
             for block in blocks:
                 if "lines" in block:
                     for line in block["lines"]:
                         line_spans = []
+                        original_text = ""
+
+                        # 收集该行的所有文本
                         for span in line["spans"]:
-                            line_spans.append({
-                                'type': 'text',
-                                'content': span['text'],
-                                'page_number': page_num,
-                                'page_info': page_info,
-                                'style': {
-                                    'font': span['font'],
-                                    'size': span['size'],
-                                    'color': span.get('color', '#000000'),
-                                    'flags': span.get('flags', 0),  # 包含字体样式信息
-                                    'bbox': {
-                                        'x0': span['bbox'][0],
-                                        'y0': span['bbox'][1],
-                                        'x1': span['bbox'][2],
-                                        'y1': span['bbox'][3]
+                            original_text += span['text']
+
+                        # 如果有文本内容则进行翻译
+                        if original_text.strip():
+                            try:
+                                translated_text = self.translator.translate(
+                                    original_text,
+                                    self.translation_preferences
+                                )
+                                self.logger.info(f"Translated text: {original_text} -> {translated_text}")
+                            except Exception as e:
+                                self.logger.error(f"Translation failed: {str(e)}")
+                                translated_text = original_text
+
+                            # 创建翻译后的 span
+                            for span in line["spans"]:
+                                # 原始文本 span
+                                line_spans.append({
+                                    'type': 'text',
+                                    'content': span['text'],
+                                    'page_number': page_num,
+                                    'page_info': page_info,
+                                    'style': {
+                                        'font': span['font'],
+                                        'size': span['size'],
+                                        'color': span.get('color', '#000000'),
+                                        'flags': span.get('flags', 0),
+                                        'bbox': {
+                                            'x0': span['bbox'][0],
+                                            'y0': span['bbox'][1],
+                                            'x1': span['bbox'][2],
+                                            'y1': span['bbox'][3]
+                                        }
+                                    }
+                                })
+
+                                # 翻译文本 span (在原文下方)
+                                translated_span = {
+                                    'type': 'text',
+                                    'content': translated_text,
+                                    'page_number': page_num,
+                                    'page_info': page_info,
+                                    'style': {
+                                        'font': span['font'],
+                                        'size': span['size'],
+                                        'color': '#0066cc',  # 使用不同颜色区分翻译
+                                        'flags': span.get('flags', 0),
+                                        'bbox': {
+                                            'x0': span['bbox'][0],
+                                            'y0': span['bbox'][1] + span['size'] + 2,  # 向下偏移
+                                            'x1': span['bbox'][2],
+                                            'y1': span['bbox'][3] + span['size'] + 2
+                                        }
                                     }
                                 }
-                            })
+                                line_spans.append(translated_span)
 
-                        # 合并同一行的spans
+                        # 合并同一行的 spans
                         if line_spans:
                             content_blocks.append({
                                 'type': 'line',
@@ -117,8 +165,8 @@ class PDFParser(BaseParser):
 
         # 提取第一页的尺寸作为基准
         first_page = next((block for block in parsed_content if 'page_info' in block), None)
-        page_width = first_page['page_info']['width'] if first_page else 595  # A4 default
-        page_height = first_page['page_info']['height'] if first_page else 842  # A4 default
+        page_width = first_page['page_info']['width'] if first_page else 595
+        page_height = first_page['page_info']['height'] if first_page else 842
 
         html_parts = ['<!DOCTYPE html><html><head>',
                       '<meta charset="UTF-8">',
@@ -127,7 +175,7 @@ class PDFParser(BaseParser):
                      body {{ margin: 0; padding: 20px; }}
                      .page {{ 
                          position: relative;
-                         width: {page_width}px;
+                         width: 1000px;
                          height: {page_height}px;
                          margin: 20px auto;
                          background: white;

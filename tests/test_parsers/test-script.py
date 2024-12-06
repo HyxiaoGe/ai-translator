@@ -41,5 +41,4 @@ def test_parse_and_preview(file_path: str):
 
 
 if __name__ == "__main__":
-    # Example usage
-    test_parse_and_preview(r"E:\Documents\阿里巴巴Java开发手册.pdf")
+    test_parse_and_preview(r"E:\Documents\DocDemo\book.pdf")
