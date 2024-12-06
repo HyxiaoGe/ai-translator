@@ -53,182 +53,136 @@ class PDFParser(BaseParser):
 
         return images
 
-    def parse(self) -> List[Dict[str, Any]]:
-        content_blocks = []
-
-        for page_num, page in enumerate(self.doc, 1):
-            self.logger.info(f"Processing page {page_num}/{len(self.doc)}")
-
-            page_rect = page.rect
-            page_info = {
-                'width': page_rect.width,
-                'height': page_rect.height
-            }
-
-            # Extract images
-            images = self._extract_images(page)
-            content_blocks.extend([{
-                'page_number': page_num,
-                'page_info': page_info,
-                **img
-            } for img in images])
-
-            # Extract and translate text blocks
-            blocks = page.get_text("dict")["blocks"]
-            for block in blocks:
-                if "lines" in block:
-                    for line in block["lines"]:
-                        line_spans = []
-                        original_text = ""
-
-                        # 收集该行的所有文本
-                        for span in line["spans"]:
-                            original_text += span['text']
-
-                        # 如果有文本内容则进行翻译
-                        if original_text.strip():
-                            try:
-                                translated_text = self.translator.translate(
-                                    original_text,
-                                    self.translation_preferences
-                                )
-                                self.logger.info(f"Translated text: {original_text} -> {translated_text}")
-                            except Exception as e:
-                                self.logger.error(f"Translation failed: {str(e)}")
-                                translated_text = original_text
-
-                            # 创建翻译后的 span
-                            for span in line["spans"]:
-                                # 翻译文本 span
-                                translated_span = {
-                                    'type': 'text',
-                                    'content': translated_text,
-                                    'page_number': page_num,
-                                    'page_info': page_info,
-                                    'style': {
-                                        'font': span['font'],
-                                        'size': span['size'],
-                                        'color': span.get('color', '#000000'),
-                                        'flags': span.get('flags', 0),
-                                        'bbox': {
-                                            'x0': span['bbox'][0],
-                                            'y0': span['bbox'][1],
-                                            'x1': span['bbox'][2],
-                                            'y1': span['bbox'][3]
-                                        }
-                                    }
-                                }
-                                line_spans.append(translated_span)
-
-                        # 合并同一行的 spans
-                        if line_spans:
-                            content_blocks.append({
-                                'type': 'line',
-                                'spans': line_spans,
-                                'page_number': page_num,
-                                'page_info': page_info,
-                                'bbox': {
-                                    'x0': min(span['style']['bbox']['x0'] for span in line_spans),
-                                    'y0': min(span['style']['bbox']['y0'] for span in line_spans),
-                                    'x1': max(span['style']['bbox']['x1'] for span in line_spans),
-                                    'y1': max(span['style']['bbox']['y1'] for span in line_spans)
-                                }
-                            })
-
-            self.logger.info(f"Completed page {page_num}")
-
-        return content_blocks
-
     def to_html(self, parsed_content: Optional[List[Dict[str, Any]]] = None) -> str:
         if parsed_content is None:
             parsed_content = self.parse()
-
-        # 提取第一页的尺寸作为基准
-        first_page = next((block for block in parsed_content if 'page_info' in block), None)
-        page_width = first_page['page_info']['width'] if first_page else 595
-        page_height = first_page['page_info']['height'] if first_page else 842
+            
+        if not parsed_content:
+            self.logger.warning("No content blocks found")
+            return '<div class="error">No content found in PDF</div>'
 
         html_parts = ['<!DOCTYPE html><html><head>',
-                      '<meta charset="UTF-8">',
-                      '<style>',
-                      f'''
-                     body {{ margin: 0; padding: 20px; }}
-                     .page {{ 
+                     '<meta charset="UTF-8">',
+                     '<style>',
+                     '''
+                     body { 
+                         margin: 0; 
+                         padding: 20px;
+                         font-family: Arial, sans-serif;
+                     }
+                     .page { 
                          position: relative;
-                         width: 1000px;
-                         height: {page_height}px;
+                         width: 800px;
                          margin: 20px auto;
+                         padding: 40px;
                          background: white;
                          box-shadow: 0 0 10px rgba(0,0,0,0.1);
-                         overflow: hidden;
-                     }}
-                     .line {{ 
-                         position: absolute;
-                         white-space: nowrap;
-                         transform-origin: left top;
-                     }}
-                     .text-span {{
-                         display: inline-block;
-                         white-space: pre;
-                     }}
-                     .image-block {{
-                         position: absolute;
-                         object-fit: contain;
-                     }}
+                         min-height: 500px;
+                     }
+                     .paragraph { 
+                         margin-bottom: 1.5em;
+                         line-height: 1.6;
+                     }
+                     .text-span {
+                         display: inline;
+                     }
+                     .error {
+                         color: red;
+                         text-align: center;
+                         padding: 20px;
+                     }
                      ''',
-                      '</style>',
-                      '</head><body>']
+                     '</style></head><body>']
 
-        current_page = 0
-        for block in sorted(parsed_content, key=lambda x: (x['page_number'], x.get('bbox', {}).get('y0', 0))):
+        # 修改排序逻辑，添加安全检查
+        def safe_sort_key(x):
+            if isinstance(x, dict):
+                page_num = x.get('page_number', 0)
+                bbox = x.get('bbox', {})
+                y0 = bbox.get('y0', 0) if isinstance(bbox, dict) else 0
+                return (page_num, y0)
+            return (0, 0)  # 对于非字典类型的元素，返回默认值
+
+        try:
+            sorted_content = sorted(parsed_content, key=safe_sort_key)
+        except Exception as e:
+            self.logger.error(f"Sorting failed: {str(e)}")
+            sorted_content = parsed_content  # 如果排序失败，使用原始顺序
+
+        current_page = None
+        for block in sorted_content:
+            if not isinstance(block, dict):
+                self.logger.warning(f"Skipping non-dict block: {block}")
+                continue
+            
             if block['page_number'] != current_page:
-                if current_page != 0:
+                if current_page is not None:
                     html_parts.append('</div>')
                 html_parts.append(f'<div class="page" id="page-{block["page_number"]}">')
                 current_page = block['page_number']
 
-            if block['type'] == 'line':
-                line_style = f'''
-                    left: {block['bbox']['x0']}px;
-                    top: {block['bbox']['y0']}px;
-                '''
-                html_parts.append(f'<div class="line" style="{line_style}">')
-
-                for span in block['spans']:
-                    span_style = f'''
-                        font-family: "{span['style']['font']}";
-                        font-size: {span['style']['size']}px;
-                        color: {span['style']['color']};
-                    '''
-                    if span['style']['flags'] & 2 ** 0:  # superscript
-                        span_style += 'vertical-align: super;'
-                    if span['style']['flags'] & 2 ** 1:  # italic
-                        span_style += 'font-style: italic;'
-                    if span['style']['flags'] & 2 ** 2:  # serifed
-                        span_style += 'font-family: serif;'
-
-                    html_parts.append(
-                        f'<span class="text-span" style="{span_style}">{span["content"]}</span>'
-                    )
-
+            if block['type'] == 'paragraph':
+                style = f"font-size: {block['spans'][0]['style']['size']}px;"
+                html_parts.append(f'<div class="paragraph" style="{style}">')
+                html_parts.append(block['spans'][0]['content'])
                 html_parts.append('</div>')
 
-            elif block['type'] == 'image':
-                style = f'''
-                    left: {block['bbox']['x0']}px;
-                    top: {block['bbox']['y0']}px;
-                    width: {block['bbox']['width']}px;
-                    height: {block['bbox']['height']}px;
-                '''
-                html_parts.append(
-                    f'<img class="image-block" style="{style}" src="{block["data"]}" />'
-                )
-
-        if current_page != 0:
+        if current_page is not None:
             html_parts.append('</div>')
-
+        
         html_parts.append('</body></html>')
-        return '\n'.join(html_parts)
+        
+        html = '\n'.join(html_parts)
+        self.logger.debug(f"Generated HTML length: {len(html)}")
+        return html
+
+    def parse(self) -> List[Dict[str, Any]]:
+        content_blocks = []
+        
+        try:
+            for page_num, page in enumerate(self.doc, 1):
+                text = page.get_text()
+                if not text.strip():
+                    self.logger.warning(f"Page {page_num} appears to be empty")
+                    continue
+                    
+                blocks = page.get_text("dict")["blocks"]
+                for block in blocks:
+                    if "lines" not in block:
+                        continue
+                        
+                    text = " ".join(span["text"] for line in block["lines"] 
+                                  for span in line["spans"]).strip()
+                    if not text:
+                        continue
+                        
+                    try:
+                        translated_text = self.translator.translate(text)
+                        first_span = block["lines"][0]["spans"][0]
+                        
+                        content_blocks.append({
+                            'type': 'paragraph',
+                            'page_number': page_num,
+                            'spans': [{
+                                'type': 'text',
+                                'content': translated_text,
+                                'style': {
+                                    'font': first_span['font'],
+                                    'size': first_span['size'],
+                                    'color': first_span.get('color', '#000000')
+                                }
+                            }],
+                            'bbox': block["bbox"]
+                        })
+                    except Exception as e:
+                        self.logger.error(f"Translation failed: {str(e)}")
+                        
+            self.logger.info(f"Extracted {len(content_blocks)} content blocks")
+            return content_blocks
+            
+        except Exception as e:
+            self.logger.error(f"PDF parsing failed: {str(e)}")
+            return []
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.logger.info("Closing PDF file")
