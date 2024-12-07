@@ -107,7 +107,7 @@ class DocParser:
                                 if paragraph.text.strip():
                                     for run in paragraph.runs:
                                         if run.text.strip():
-                                            translated_text = self.translator.translate(run.text, preferences)
+                                            translated_text = await self.translator.translate(run.text, preferences)
                                             run.text = translated_text
                                             pbar.update(1)
                                             if self.progress_tracker:
@@ -120,7 +120,7 @@ class DocParser:
                         if paragraph.text.strip():
                             for run in paragraph.runs:
                                 if run.text.strip():
-                                    translated_text = self.translator.translate(run.text, preferences)
+                                    translated_text = await self.translator.translate(run.text, preferences)
                                     run.text = translated_text
                                     pbar.update(1)
                                     if self.progress_tracker:
@@ -133,7 +133,7 @@ class DocParser:
                         if paragraph.text.strip():
                             for run in paragraph.runs:
                                 if run.text.strip():
-                                    translated_text = self.translator.translate(run.text, preferences)
+                                    translated_text = await self.translator.translate(run.text, preferences)
                                     run.text = translated_text
                                     pbar.update(1)
                                     if self.progress_tracker:

@@ -32,7 +32,6 @@ class Translator:
             raise ValueError("DASHSCOPE_API_KEY environment variable not set")
 
     def _create_system_prompt(self, preferences: TranslationPreferences) -> str:
-        self.logger.info("正在生成系统提示...")
         terminology_str = "无" if not preferences.terminology_mapping else \
             "\n".join([f"- {k} => {v}" for k, v in preferences.terminology_mapping.items()])
 
