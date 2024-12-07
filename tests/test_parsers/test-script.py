@@ -1,44 +1,38 @@
-from pathlib import Path
-from app.parsers.pdf_parser import PDFMinerParser
-from app.parsers.docx_parser import DocxParser
-from app.utils.logger import setup_logger
+from app.core.translator import Translator, TranslationPreferences
+from app.parsers.docx_parser import DocParser, DocParserConfig
 
 
-def test_parse_and_preview(file_path: str):
-    """Test function to parse a document and save HTML preview"""
-    logger = setup_logger('test_script')
-    logger.info(f"Starting document processing for: {file_path}")
+def main():
+    # 初始化翻译器
+    translator = Translator()
 
-    file_path = Path(file_path)
-    output_path = file_path.with_suffix('.html')
+    # 设置翻译偏好
+    preferences = TranslationPreferences(
+        source_lang='en',
+        target_lang='zh',
+        formality_level='正式',
+        domain='技术',
+        keep_original_terms=True,
+        translate_by_paragraph=True
+    )
 
-    logger.info(f"Output will be saved to: {output_path}")
+    # 设置文档解析器配置
+    config = DocParserConfig(
+        skip_headers=True,
+        skip_footers=True,
+        skip_tables=False,
+    )
 
+    # 初始化文档解析器
+    doc_parser = DocParser(translator, config)
+
+    # 执行文档翻译
     try:
-        if file_path.suffix.lower() == '.pdf':
-            logger.info("Detected PDF file")
-            parser = PDFMinerParser(str(file_path))
-        elif file_path.suffix.lower() in ('.docx', '.doc'):
-            logger.info("Detected Word document")
-            parser = DocxParser(str(file_path))
-        else:
-            logger.error(f"Unsupported file type: {file_path.suffix}")
-            raise ValueError(f"Unsupported file type: {file_path.suffix}")
-
-        with parser:
-            logger.info("Starting parsing and HTML generation")
-            html_content = parser.to_html()
-
-            logger.info("Saving HTML output")
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(html_content)
-
-            logger.info(f"Preview generated successfully: {output_path}")
-
+        doc_parser.translate_document(doc_path=r'E:\Documents\DocDemo\sample-files.com-formatted-report.docx', preferences=preferences)
+        print("文档翻译完成！")
     except Exception as e:
-        logger.error(f"Error processing document: {str(e)}", exc_info=True)
-        raise
+        print(f"翻译过程中发生错误: {str(e)}")
 
 
 if __name__ == "__main__":
-    test_parse_and_preview(r"E:\Documents\DocDemo\book2.pdf")
+    main()

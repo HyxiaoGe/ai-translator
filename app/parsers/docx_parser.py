@@ -1,68 +1,75 @@
 from docx import Document
-from typing import List, Dict, Any, Optional
-from .base import BaseParser
+from typing import List, Optional
+from dataclasses import dataclass
+from app.core.translator import Translator, TranslationPreferences
 
 
-class DocxParser(BaseParser):
-    def __init__(self, file_path: str):
-        super().__init__(file_path)
-        self.doc = Document(self.file_path)
+@dataclass
+class DocParserConfig:
+    skip_headers: bool = True
+    skip_footers: bool = True
+    skip_tables: bool = False
 
-    def parse(self) -> List[Dict[str, Any]]:
-        content_blocks = []
+class DocParser:
+    def __init__(self, translator: Translator, config: Optional[DocParserConfig] = None):
+        self.translator = translator
+        self.config = config or DocParserConfig()
 
-        for paragraph in self.doc.paragraphs:
-            # 跳过空白段落
-            if not paragraph.text.strip():
-                continue
+    def translate_document(self, doc_path: str, preferences: Optional[TranslationPreferences] = None):
+        """
+        在原文档上直接进行翻译
 
-            # 获取样式信息
-            style = {
-                'name': paragraph.style.name,
-                'font_size': 12,  # Default size
-                'is_bold': any(run.bold for run in paragraph.runs),
-                'is_italic': any(run.italic for run in paragraph.runs)
-            }
+        Args:
+            doc_path: Word文档路径
+            preferences: 翻译偏好设置
+        """
+        # 打开文档
+        doc = Document(doc_path)
 
-            # 根据样式确定块类型
-            block_type = 'heading' if 'Heading' in paragraph.style.name else 'paragraph'
+        # 处理正文段落
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():  # 跳过空段落
+                # 获取段落中的所有runs（格式一致的文本块）
+                for run in paragraph.runs:
+                    if run.text.strip():  # 跳过空文本
+                        # 翻译文本
+                        translated_text = self.translator.translate(run.text, preferences)
+                        # 保持原有格式，只替换文本
+                        run.text = translated_text
 
-            content_blocks.append({
-                'content': paragraph.text,
-                'page_number': 1,
-                'block_type': block_type,
-                'style': style
-            })
+        # 处理表格（如果需要）
+        if not self.config.skip_tables:
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        for paragraph in cell.paragraphs:
+                            if paragraph.text.strip():
+                                for run in paragraph.runs:
+                                    if run.text.strip():
+                                        translated_text = self.translator.translate(run.text, preferences)
+                                        run.text = translated_text
 
-        return content_blocks
+        # 处理页眉（如果需要）
+        if not self.config.skip_headers:
+            for section in doc.sections:
+                header = section.header
+                for paragraph in header.paragraphs:
+                    if paragraph.text.strip():
+                        for run in paragraph.runs:
+                            if run.text.strip():
+                                translated_text = self.translator.translate(run.text, preferences)
+                                run.text = translated_text
 
-    def to_html(self, parsed_content: Optional[List[Dict[str, Any]]] = None) -> str:
-        if parsed_content is None:
-            parsed_content = self.parse()
+        # 处理页脚（如果需要）
+        if not self.config.skip_footers:
+            for section in doc.sections:
+                footer = section.footer
+                for paragraph in footer.paragraphs:
+                    if paragraph.text.strip():
+                        for run in paragraph.runs:
+                            if run.text.strip():
+                                translated_text = self.translator.translate(run.text, preferences)
+                                run.text = translated_text
 
-        html_parts = ['<!DOCTYPE html><html><head>',
-                      '<meta charset="UTF-8">',
-                      '<style>',
-                      '.document { margin: 20px auto; padding: 20px; max-width: 800px; }',
-                      '.block { margin: 10px 0; }',
-                      '.heading { font-weight: bold; font-size: 1.2em; }',
-                      '</style>',
-                      '</head><body>',
-                      '<div class="document">']
-
-        for block in parsed_content:
-            style = []
-            if block['style']['is_bold']:
-                style.append('font-weight: bold')
-            if block['style']['is_italic']:
-                style.append('font-style: italic')
-
-            class_name = 'block ' + block['block_type']
-            style_str = '; '.join(style)
-
-            html_parts.append(
-                f'<div class="{class_name}" style="{style_str}">{block["content"]}</div>'
-            )
-
-        html_parts.extend(['</div>', '</body></html>'])
-        return '\n'.join(html_parts)
+        # 直接保存到原文件
+        doc.save(doc_path)
