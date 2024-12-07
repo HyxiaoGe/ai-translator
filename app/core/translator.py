@@ -96,7 +96,7 @@ class Translator:
                 # full_response.append(chunk_content)
                 translated_text = response.output.choices[0]['message']['content']
                 # 可以在这里添加实时处理逻辑，比如打印或回调
-                self.logger.info(f"Translation successful: {len(text)} chars")
+                # self.logger.info(f"Translation successful: {len(text)} chars")
                 return translated_text
             else:
                 self.logger.error(f"Translation chunk failed: {response.code} - {response.message}")
@@ -109,19 +109,19 @@ class Translator:
         raise
 
 
-def batch_translate(self, texts: List[str], preferences: Optional[TranslationPreferences] = None) -> List[str]:
-    """
-    Translate a batch of texts using specified preferences.
+    def batch_translate(self, texts: List[str], preferences: Optional[TranslationPreferences] = None) -> List[str]:
+        """
+        Translate a batch of texts using specified preferences.
 
-    Args:
-        texts: List of texts to translate
-        preferences: Translation preferences
+        Args:
+            texts: List of texts to translate
+            preferences: Translation preferences
 
-    Returns:
-        List of translated texts
-    """
-    translated_texts = []
-    for text in texts:
-        translated = self.translate(text, preferences)
-        translated_texts.append(translated)
-    return translated_texts
+        Returns:
+            List of translated texts
+        """
+        translated_texts = []
+        for text in texts:
+            translated = self.translate(text, preferences)
+            translated_texts.append(translated)
+        return translated_texts
