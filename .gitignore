@@ -57,3 +57,5 @@ local_settings.py
 
 # 其他
 .DS_Store
+
+temp

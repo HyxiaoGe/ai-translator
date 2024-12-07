@@ -1,4 +1,6 @@
+import os
 import urllib.parse
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -6,9 +8,76 @@ import httpx
 from fastapi import FastAPI, Query, HTTPException
 
 from app.core.file_downloader import FileDownloader
+from app.core.translator import Translator, TranslationPreferences
+from app.parsers.docx_parser import DocParser
 
 app = FastAPI()
 
+# 获取项目根目录
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# 创建临时文件目录（使用绝对路径）
+TEMP_DIR = os.path.join(BASE_DIR, "temp")
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+@app.get("/translate")
+async def translate_file(
+        file_url: str = Query(..., description="文件链接"),
+        source_lang: str = Query(..., description="源语言"),
+        target_lang: str = Query(..., description="目标语言"),
+):
+    try:
+        # 创建下载器实例
+        downloader = FileDownloader()
+
+        # 下载文件
+        file_content, file_name = await downloader.download_file(file_url)
+
+
+        # 创建翻译器和解析器实例
+        translator = Translator()
+        doc_parser = DocParser(translator)
+        # 设置翻译偏好
+        preferences = TranslationPreferences(
+            source_lang=source_lang,
+            target_lang=target_lang
+        )
+
+        # 使用绝对路径生成输出文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"translated_{timestamp}_{file_name}"
+        output_path = os.path.join(TEMP_DIR, output_filename)
+
+        # 打印保存路径（用于调试）
+        print(f"Saving file to: {output_path}")
+
+        # 翻译文档
+        translated_content = doc_parser.translate_document(
+            doc_source=file_content,
+            filename=file_name,
+            output_path=output_path,
+            preferences=preferences
+        )
+
+        # 验证文件是否已保存
+        if not os.path.exists(output_path):
+            raise HTTPException(
+                status_code=500,
+                detail=f"文件保存失败，路径: {output_path}"
+            )
+
+        return {
+            "message": "翻译完成",
+            "original_filename": file_name,
+            "translated_filename": output_filename,
+            "download_url": f"/download/{output_filename}",
+            "file_path": output_path  # 临时添加，用于调试
+        }
+
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 async def download_file(url: str) -> tuple[BytesIO, str]:
     """
@@ -74,31 +143,3 @@ async def read_file_content(file_content: BytesIO, file_extension: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"文件读取失败: {str(e)}")
 
-
-@app.get("/translate")
-async def translate_file(
-        file_url: str = Query(..., description="文件链接"),
-        source_lang: str = Query(..., description="源语言"),
-        target_lang: str = Query(..., description="目标语言"),
-):
-    try:
-        # 创建下载器实例
-        downloader = FileDownloader()
-
-        # 下载文件
-        file_content, file_name = await downloader.download_file(file_url)
-
-
-        # TODO: 接下来可以调用DocParser进行处理
-        # ...
-
-        return {
-            "message": "文件下载成功",
-            "file_name": file_name,
-            "size": len(file_content.getvalue())
-        }
-
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

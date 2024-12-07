@@ -81,7 +81,7 @@ class Translator:
 
             response = dashscope.Generation.call(
                 api_key=self.api_key,
-                model="qwen-max",
+                model="qwen-plus",
                 messages=messages,
                 result_format='message',
                 stream=False

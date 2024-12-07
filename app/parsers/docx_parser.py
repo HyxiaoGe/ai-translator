@@ -1,5 +1,7 @@
+from io import BytesIO
+
 from docx import Document
-from typing import List, Optional
+from typing import List, Optional, Union
 from dataclasses import dataclass
 from tqdm import tqdm
 from app.core.translator import Translator, TranslationPreferences
@@ -46,19 +48,30 @@ class DocParser:
 
         return total
 
-    def translate_document(self, doc_path: str, preferences: Optional[TranslationPreferences] = None):
+    def translate_document(self, doc_source: Union[str, BytesIO],
+                           filename: Optional[str] = None,
+                           output_path: Optional[str] = None,
+                           preferences: Optional[TranslationPreferences] = None) -> BytesIO:
         """
-        在原文档上直接进行翻译
+        在文档上直接进行翻译
 
         Args:
-            doc_path: Word文档路径
+            doc_source: Word文档路径或BytesIO对象
+            output_path: 输出文件路径（可选）
             preferences: 翻译偏好设置
+
+        Returns:
+            BytesIO: 包含翻译后文档的BytesIO对象
         """
         # 打开文档
-        doc = Document(doc_path)
+        if isinstance(doc_source, str):
+            doc = Document(doc_source)
+        else:
+            doc = Document(doc_source)
+
         total_runs = self._count_total_runs(doc)
 
-        with tqdm(total=total_runs, desc="翻译进度") as pbar:
+        with tqdm(total=total_runs, desc=f"正在翻译: {filename}") as pbar:
             # 处理正文段落
             for paragraph in doc.paragraphs:
                 if paragraph.text.strip():  # 跳过空段落
@@ -108,5 +121,13 @@ class DocParser:
                                     run.text = translated_text
                                     pbar.update(1)
 
-        # 直接保存到原文件
-        doc.save(doc_path)
+        # 保存文档
+        output_buffer = BytesIO()
+        doc.save(output_buffer)
+        output_buffer.seek(0)
+
+        # 如果指定了输出路径，同时保存到文件
+        if output_path:
+            doc.save(output_path)
+
+        return output_buffer
