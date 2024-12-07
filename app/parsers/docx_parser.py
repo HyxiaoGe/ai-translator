@@ -3,7 +3,7 @@ from io import BytesIO
 from docx import Document
 from typing import List, Optional, Union
 from dataclasses import dataclass
-
+from app.utils.logger import setup_logger
 from tqdm import tqdm
 
 from app.core.translator import Translator, TranslationPreferences
@@ -23,6 +23,8 @@ class DocParser:
         self.translator = translator
         self.config = config or DocParserConfig()
         self.progress_tracker = progress_tracker
+        self.logger = setup_logger(self.__class__.__name__)
+
 
     def _count_total_runs(self, doc: Document) -> int:
         """统计文档中需要处理的总runs数"""
@@ -72,10 +74,7 @@ class DocParser:
             BytesIO: 包含翻译后文档的BytesIO对象
         """
         # 打开文档
-        if isinstance(doc_source, str):
-            doc = Document(doc_source)
-        else:
-            doc = Document(doc_source)
+        doc = Document(doc_source)
 
         # 获取总运行数并设置进度追踪器
         total_runs = self._count_total_runs(doc)
