@@ -1,10 +1,12 @@
+import os
 from dataclasses import dataclass
 from typing import List, Dict, Optional
-
+from dotenv import load_dotenv
 import dashscope
 
 from app.utils.logger import setup_logger
 
+load_dotenv()
 
 @dataclass
 class TranslationPreferences:
@@ -22,7 +24,7 @@ class TranslationPreferences:
 class Translator:
     def __init__(self):
         self.logger = setup_logger(self.__class__.__name__)
-        self.api_key = 'sk-c9c067a3384f424b82b3310ba8a48cff'
+        self.api_key = os.getenv('API_KEY')
         if not self.api_key:
             raise ValueError("DASHSCOPE_API_KEY environment variable not set")
 

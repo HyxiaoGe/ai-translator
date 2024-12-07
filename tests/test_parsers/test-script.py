@@ -41,4 +41,4 @@ def test_parse_and_preview(file_path: str):
 
 
 if __name__ == "__main__":
-    test_parse_and_preview(r"E:\IDM\Documents\tsia2-english-language-arts-reading-sample-questions.pdf")
+    test_parse_and_preview(r"E:\Documents\DocDemo\book1.pdf")
