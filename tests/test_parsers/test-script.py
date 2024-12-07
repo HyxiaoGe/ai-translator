@@ -1,5 +1,5 @@
 from pathlib import Path
-from app.parsers.pdf_parser import PDFParser
+from app.parsers.pdf_parser import PDFMinerParser
 from app.parsers.docx_parser import DocxParser
 from app.utils.logger import setup_logger
 
@@ -17,7 +17,7 @@ def test_parse_and_preview(file_path: str):
     try:
         if file_path.suffix.lower() == '.pdf':
             logger.info("Detected PDF file")
-            parser = PDFParser(str(file_path))
+            parser = PDFMinerParser(str(file_path))
         elif file_path.suffix.lower() in ('.docx', '.doc'):
             logger.info("Detected Word document")
             parser = DocxParser(str(file_path))
@@ -41,4 +41,4 @@ def test_parse_and_preview(file_path: str):
 
 
 if __name__ == "__main__":
-    test_parse_and_preview(r"E:\Documents\DocDemo\book1.pdf")
+    test_parse_and_preview(r"E:\Documents\DocDemo\book2.pdf")
