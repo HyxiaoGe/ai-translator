@@ -1,11 +1,13 @@
+import asyncio
 from io import BytesIO
-
 from docx import Document
 from typing import List, Optional, Union
 from dataclasses import dataclass
-from tqdm import tqdm
-from app.core.translator import Translator, TranslationPreferences
 
+from tqdm import tqdm
+
+from app.core.translator import Translator, TranslationPreferences
+from app.core.progress import ProgressTracker
 
 @dataclass
 class DocParserConfig:
@@ -14,9 +16,13 @@ class DocParserConfig:
     skip_tables: bool = False
 
 class DocParser:
-    def __init__(self, translator: Translator, config: Optional[DocParserConfig] = None):
+    def __init__(self,
+                 translator: Translator,
+                 config: Optional[DocParserConfig] = None,
+                 progress_tracker: Optional[ProgressTracker] = None):
         self.translator = translator
         self.config = config or DocParserConfig()
+        self.progress_tracker = progress_tracker
 
     def _count_total_runs(self, doc: Document) -> int:
         """统计文档中需要处理的总runs数"""
@@ -48,15 +54,17 @@ class DocParser:
 
         return total
 
-    def translate_document(self, doc_source: Union[str, BytesIO],
-                           filename: Optional[str] = None,
-                           output_path: Optional[str] = None,
-                           preferences: Optional[TranslationPreferences] = None) -> BytesIO:
+    async def translate_document(self,
+                         doc_source: Union[str, BytesIO],
+                         filename: Optional[str] = None,
+                         output_path: Optional[str] = None,
+                         preferences: Optional[TranslationPreferences] = None) -> BytesIO:
         """
         在文档上直接进行翻译
 
         Args:
             doc_source: Word文档路径或BytesIO对象
+            filename: 文件名（用于显示）
             output_path: 输出文件路径（可选）
             preferences: 翻译偏好设置
 
@@ -69,20 +77,26 @@ class DocParser:
         else:
             doc = Document(doc_source)
 
+        # 获取总运行数并设置进度追踪器
         total_runs = self._count_total_runs(doc)
+        if self.progress_tracker:
+            self.progress_tracker.set_total(total_runs)
 
         with tqdm(total=total_runs, desc=f"正在翻译: {filename}") as pbar:
-            # 处理正文段落
+        # 处理正文段落
             for paragraph in doc.paragraphs:
                 if paragraph.text.strip():  # 跳过空段落
-                    # 获取段落中的所有runs（格式一致的文本块）
                     for run in paragraph.runs:
                         if run.text.strip():  # 跳过空文本
                             # 翻译文本
-                            translated_text = self.translator.translate(run.text, preferences)
+                            translated_text = await self.translator.translate(run.text, preferences)
                             # 保持原有格式，只替换文本
                             run.text = translated_text
                             pbar.update(1)
+                            if self.progress_tracker:
+                                self.progress_tracker.update(1)
+                            # 每次翻译后让出控制权
+                            await asyncio.sleep(0)
 
             # 处理表格（如果需要）
             if not self.config.skip_tables:
@@ -96,30 +110,34 @@ class DocParser:
                                             translated_text = self.translator.translate(run.text, preferences)
                                             run.text = translated_text
                                             pbar.update(1)
+                                            if self.progress_tracker:
+                                                self.progress_tracker.update(1)
 
             # 处理页眉（如果需要）
             if not self.config.skip_headers:
                 for section in doc.sections:
-                    header = section.header
-                    for paragraph in header.paragraphs:
+                    for paragraph in section.header.paragraphs:
                         if paragraph.text.strip():
                             for run in paragraph.runs:
                                 if run.text.strip():
                                     translated_text = self.translator.translate(run.text, preferences)
                                     run.text = translated_text
                                     pbar.update(1)
+                                    if self.progress_tracker:
+                                        self.progress_tracker.update(1)
 
             # 处理页脚（如果需要）
             if not self.config.skip_footers:
                 for section in doc.sections:
-                    footer = section.footer
-                    for paragraph in footer.paragraphs:
+                    for paragraph in section.footer.paragraphs:
                         if paragraph.text.strip():
                             for run in paragraph.runs:
                                 if run.text.strip():
                                     translated_text = self.translator.translate(run.text, preferences)
                                     run.text = translated_text
                                     pbar.update(1)
+                                    if self.progress_tracker:
+                                        self.progress_tracker.update(1)
 
         # 保存文档
         output_buffer = BytesIO()

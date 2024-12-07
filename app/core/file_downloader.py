@@ -71,6 +71,8 @@ class FileDownloader:
                 response = await client.get(final_url, headers=headers)
                 response.raise_for_status()
 
+                self.logger.info(f"文件下载成功: {file_name}")
+
                 # 返回文件内容和文件名
                 return BytesIO(response.content), file_name
 

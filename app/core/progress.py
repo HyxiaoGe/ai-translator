@@ -13,12 +13,17 @@ class ProgressTracker:
     def update(self, n: int = 1):
         """更新进度并通知任务管理器"""
         self.current += n
-        progress = (self.current / self.total) * 100 if self.total > 0 else 0
+        progress = min(100, (self.current / self.total) * 100) if self.total > 0 else 0
         self.task_manager.update_task_progress(self.task_id, progress)
 
-    def close(self):
-        """完成进度追踪"""
-        pass
+    def set_total(self, total: int):
+        """设置总数"""
+        self.total = total
+
+    def reset(self):
+        """重置进度"""
+        self.current = 0
+        self.task_manager.update_task_progress(self.task_id, 0)
 
 
 class CustomTQDM(tqdm):

@@ -1,13 +1,14 @@
 import os
-import urllib.parse
 from datetime import datetime
-from io import BytesIO
 from pathlib import Path
 
-import httpx
-from fastapi import FastAPI, Query, HTTPException
+from aiohttp.web_fileresponse import FileResponse
+from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
 
+from app.core import task_manager
 from app.core.file_downloader import FileDownloader
+from app.core.progress import ProgressTracker
+from app.core.task_manager import TaskManager
 from app.core.translator import Translator, TranslationPreferences
 from app.parsers.docx_parser import DocParser
 
@@ -20,39 +21,123 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 TEMP_DIR = os.path.join(BASE_DIR, "temp")
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-@app.get("/translate")
+# 全局任务管理器
+task_manager = TaskManager()
+
+
+@app.get("/api/translate")
 async def translate_file(
+        background_tasks: BackgroundTasks,
         file_url: str = Query(..., description="文件链接"),
         source_lang: str = Query(..., description="源语言"),
         target_lang: str = Query(..., description="目标语言"),
 ):
+    """创建翻译任务"""
     try:
+        # 创建新任务
+        task_id = task_manager.create_task(file_url)
+
+        # 添加后台任务
+        background_tasks.add_task(
+            process_translation,
+            task_id,
+            file_url,
+            source_lang,
+            target_lang
+        )
+
+        return {
+            "task_id": task_id,
+            "status": "pending",
+            "message": "任务已创建，正在处理中..."
+        }
+
+
+    except Exception as e:
+
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    """获取任务状态"""
+    task = task_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    response = {
+        "status": task.status,
+        "progress": task.progress,
+        "download_url": ""
+    }
+
+    if task.status == 'completed':
+        response["download_url"] = f"/api/download/{task_id}/{os.path.basename(task.result_file_path)}"
+    elif task.status == 'failed':
+        response["error_message"] = task.error_message
+
+    return response
+
+
+# @app.get("/api/download/{task_id}/{filename}")
+# async def download_file(task_id: str, filename: str):
+#     """下载翻译后的文件"""
+#     task = task_manager.get_task(task_id)
+#     if not task:
+#         raise HTTPException(status_code=404, detail="任务不存在")
+#
+#     if task.status != 'completed':
+#         raise HTTPException(status_code=400, detail="任务尚未完成")
+#
+#     file_path = task.result_file_path
+#     if not file_path or not os.path.exists(file_path):
+#         raise HTTPException(status_code=404, detail="文件不存在")
+#
+#     return FileResponse(
+#         file_path,
+#         filename=filename,
+#         media_type='application/octet-stream'
+#     )
+
+
+async def process_translation(
+        task_id: str,
+        file_url: str,
+        source_lang: str,
+        target_lang: str,
+):
+    """异步处理翻译任务"""
+    try:
+        # 更新任务状态为处理中
+        task_manager.update_task_status(task_id, 'processing')
+
         # 创建下载器实例
         downloader = FileDownloader()
 
         # 下载文件
         file_content, file_name = await downloader.download_file(file_url)
 
-
         # 创建翻译器和解析器实例
         translator = Translator()
-        doc_parser = DocParser(translator)
+
+        # 创建进度追踪器
+        progress_tracker = ProgressTracker(100, task_id, task_manager)
+
+        doc_parser = DocParser(translator, progress_tracker=progress_tracker)
+
         # 设置翻译偏好
         preferences = TranslationPreferences(
             source_lang=source_lang,
             target_lang=target_lang
         )
 
-        # 使用绝对路径生成输出文件名
+        # 生成输出文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_filename = f"translated_{timestamp}_{file_name}"
         output_path = os.path.join(TEMP_DIR, output_filename)
 
-        # 打印保存路径（用于调试）
-        print(f"Saving file to: {output_path}")
-
         # 翻译文档
-        translated_content = doc_parser.translate_document(
+        await doc_parser.translate_document(
             doc_source=file_content,
             filename=file_name,
             output_path=output_path,
@@ -61,85 +146,13 @@ async def translate_file(
 
         # 验证文件是否已保存
         if not os.path.exists(output_path):
-            raise HTTPException(
-                status_code=500,
-                detail=f"文件保存失败，路径: {output_path}"
-            )
+            raise Exception("文件保存失败")
 
-        return {
-            "message": "翻译完成",
-            "original_filename": file_name,
-            "translated_filename": output_filename,
-            "download_url": f"/download/{output_filename}",
-            "file_path": output_path  # 临时添加，用于调试
-        }
-
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def download_file(url: str) -> tuple[BytesIO, str]:
-    """
-    下载文件到内存并返回 BytesIO 对象和文件扩展名
-
-    Args:
-        url: 文件下载链接
-
-    Returns:
-        tuple: (BytesIO对象, 文件扩展名)
-    """
-    try:
-        async with httpx.AsyncClient() as client:
-            # http://192.168.0.196/group1/M00/00/1E/wKgAxGdJe56ABeewAAAyYB35Ydc60.docx?token=260a64b4359502d2b5f62b29f94057cb&ts=1733557138&fn=%E7%99%BE%E7%82%BC%E7%B3%BB%E5%88%97%E6%89%8B%E6%9C%BA%E4%BA%A7%E5%93%81%E4%BB%8B%E7%BB%8D.docx&cv=4.12.0&ct=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjk4LCJ0aW1lIjoxNzMzNTU3MTAzLCJrZXkiOiIxMjM0NTY3NC4xIiwiaXAiOiIxOTIuMTY4LjI1MC4xMTgiLCJkZXZpY2UiOiJ3ZWIiLCJpYXQiOjE3MzM1NTcxMDN9.iyQJq7b1rqMrFeNnqnZLy9nP9Gt_6tFosC9yz36He2Y
-            down_url = ""
-            response = await client.get(down_url)
-            response.raise_for_status()
-
-            # 获取文件扩展名
-            # 先尝试从URL路径获取
-            file_extension = Path(urllib.parse.urlparse(url).path).suffix.lower()
-
-            # 如果URL中没有扩展名，尝试从Content-Type获取
-            if not file_extension:
-                content_type = response.headers.get('content-type', '')
-                if 'text/plain' in content_type:
-                    file_extension = '.txt'
-                elif 'application/pdf' in content_type:
-                    file_extension = '.pdf'
-                elif 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' in content_type:
-                    file_extension = '.docx'
-                # 可以添加更多类型的判断
-
-            # 创建 BytesIO 对象
-            file_content = BytesIO(response.content)
-            return file_content, file_extension
+        # 更新任务状态为完成
+        task_manager.update_task_status(task_id, 'completed')
+        task_manager.set_result_file(task_id, output_path)
 
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"文件下载失败: {str(e)}")
-
-
-async def read_file_content(file_content: BytesIO, file_extension: str) -> str:
-    """
-    从内存中读取文件内容
-
-    Args:
-        file_content: BytesIO对象，包含文件内容
-        file_extension: 文件扩展名
-
-    Returns:
-        str: 文件的文本内容
-    """
-    try:
-        if file_extension == '.docx':
-            from docx import Document
-            file_content.seek(0)
-            doc = Document(file_content)
-            return '\n'.join([paragraph.text for paragraph in doc.paragraphs])
-
-        else:
-            raise HTTPException(status_code=400, detail=f"不支持的文件类型: {file_extension}")
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"文件读取失败: {str(e)}")
-
+        # 更新任务状态为失败
+        task_manager.update_task_status(task_id, 'failed', str(e))
+        raise

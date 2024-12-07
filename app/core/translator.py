@@ -1,8 +1,10 @@
+import asyncio
 import os
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
 import dashscope
+from select import select
 
 from app.utils.logger import setup_logger
 
@@ -24,11 +26,13 @@ class TranslationPreferences:
 class Translator:
     def __init__(self):
         self.logger = setup_logger(self.__class__.__name__)
+        self.logger.info("正在初始化翻译器...")
         self.api_key = os.getenv('API_KEY')
         if not self.api_key:
             raise ValueError("DASHSCOPE_API_KEY environment variable not set")
 
     def _create_system_prompt(self, preferences: TranslationPreferences) -> str:
+        self.logger.info("正在生成系统提示...")
         terminology_str = "无" if not preferences.terminology_mapping else \
             "\n".join([f"- {k} => {v}" for k, v in preferences.terminology_mapping.items()])
 
@@ -57,59 +61,38 @@ class Translator:
 
         return prompt
 
-    def translate(self, text: str, preferences: Optional[TranslationPreferences] = None) -> str:
-        """
-        Translate text using specified preferences.
-
-        Args:
-            text: Text to translate
-            preferences: Translation preferences
-
-        Returns:
-            Translated text
-        """
-        if preferences is None:
-            preferences = TranslationPreferences()
-
+    async def translate(self, text: str, preferences: Optional[TranslationPreferences] = None) -> str:
+        if not text.strip():
+            return text
         try:
-            system_prompt = self._create_system_prompt(preferences)
-
-            messages = [
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': text}
-            ]
-
-            response = dashscope.Generation.call(
-                api_key=self.api_key,
-                model="qwen-plus",
-                messages=messages,
-                result_format='message',
-                stream=False
+            loop = asyncio.get_event_loop()
+            # 将同步调用包装在 run_in_executor 中
+            response = await loop.run_in_executor(
+                None,
+                lambda: dashscope.Generation.call(
+                    api_key=self.api_key,
+                    model="qwen-max",
+                    messages=[
+                        {'role': 'system', 'content': self._create_system_prompt(preferences)},
+                        {'role': 'user', 'content': text}
+                    ],
+                    result_format='message',
+                    stream=False
+                )
             )
 
-            # 处理流式响应
-            # full_response = []
-            # for chunk in response:
             if response.status_code == 200:
-                # 获取当前片段的内容
-                # chunk_content = chunk.output.choices[0]['message']['content']
-                # full_response.append(chunk_content)
-                translated_text = response.output.choices[0]['message']['content']
-                # 可以在这里添加实时处理逻辑，比如打印或回调
-                # self.logger.info(f"Translation successful: {len(text)} chars")
-                return translated_text
+                return response.output.choices[0]['message']['content']
             else:
-                self.logger.error(f"Translation chunk failed: {response.code} - {response.message}")
-                raise Exception(f"Translation chunk failed: {response.message}")
-
-        # translated_text = ''.join(full_response)
+                raise Exception(f"翻译失败: {response.code} - {response.message}")
 
         except Exception as e:
-            self.logger.error(f"Error during translation: {str(e)}")
-        raise
+            self.logger.error(f"翻译错误: {str(e)}")
+            raise ValueError(f"翻译失败: {str(e)}")
 
 
-    def batch_translate(self, texts: List[str], preferences: Optional[TranslationPreferences] = None) -> List[str]:
+    async def batch_translate(self, texts: List[str], preferences: Optional[TranslationPreferences] = None) -> List[str]:
+        self.logger.info("正在批量翻译文本...")
         """
         Translate a batch of texts using specified preferences.
 
