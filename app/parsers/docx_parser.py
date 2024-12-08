@@ -76,67 +76,114 @@ class DocParser:
         # 打开文档
         doc = Document(doc_source)
 
-        # 获取总运行数并设置进度追踪器
-        total_runs = self._count_total_runs(doc)
-        if self.progress_tracker:
-            self.progress_tracker.set_total(total_runs)
+        # 收集所有需要翻译的文本和位置信息
+        texts_to_translate = []
+        text_locations = []
 
-        with tqdm(total=total_runs, desc=f"正在翻译: {filename}") as pbar:
-        # 处理正文段落
-            for paragraph in doc.paragraphs:
-                if paragraph.text.strip():  # 跳过空段落
-                    for run in paragraph.runs:
-                        if run.text.strip():  # 跳过空文本
-                            # 翻译文本
-                            translated_text = await self.translator.translate(run.text, preferences)
-                            # 保持原有格式，只替换文本
-                            run.text = translated_text
-                            pbar.update(1)
-                            if self.progress_tracker:
-                                self.progress_tracker.update(1)
-                            # 每次翻译后让出控制权
-                            await asyncio.sleep(0)
+        # 收集正文段落的文本
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                current_texts = []
+                current_runs = []
+                for run in paragraph.runs:
+                    if run.text.strip():
+                        current_texts.append(run.text)
+                        current_runs.append(run)
+                if current_texts:
+                    texts_to_translate.append(" ".join(current_texts))
+                    text_locations.append(('paragraph', current_runs))
 
-            # 处理表格（如果需要）
-            if not self.config.skip_tables:
-                for table in doc.tables:
-                    for row in table.rows:
-                        for cell in row.cells:
-                            for paragraph in cell.paragraphs:
-                                if paragraph.text.strip():
-                                    for run in paragraph.runs:
-                                        if run.text.strip():
-                                            translated_text = await self.translator.translate(run.text, preferences)
-                                            run.text = translated_text
-                                            pbar.update(1)
-                                            if self.progress_tracker:
-                                                self.progress_tracker.update(1)
+        # 收集表格中的文本
+        if not self.config.skip_tables:
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        for paragraph in cell.paragraphs:
+                            if paragraph.text.strip():
+                                current_texts = []
+                                current_runs = []
+                                for run in paragraph.runs:
+                                    if run.text.strip():
+                                        current_texts.append(run.text)
+                                        current_runs.append(run)
+                                if current_texts:
+                                    texts_to_translate.append(" ".join(current_texts))
+                                    text_locations.append(('table', current_runs))
 
-            # 处理页眉（如果需要）
-            if not self.config.skip_headers:
-                for section in doc.sections:
-                    for paragraph in section.header.paragraphs:
-                        if paragraph.text.strip():
-                            for run in paragraph.runs:
-                                if run.text.strip():
-                                    translated_text = await self.translator.translate(run.text, preferences)
-                                    run.text = translated_text
-                                    pbar.update(1)
-                                    if self.progress_tracker:
-                                        self.progress_tracker.update(1)
+        # 收集页眉文本
+        if not self.config.skip_headers:
+            for section in doc.sections:
+                for paragraph in section.header.paragraphs:
+                    if paragraph.text.strip():
+                        current_texts = []
+                        current_runs = []
+                        for run in paragraph.runs:
+                            if run.text.strip():
+                                current_texts.append(run.text)
+                                current_runs.append(run)
+                        if current_texts:
+                            texts_to_translate.append(" ".join(current_texts))
+                            text_locations.append(('header', current_runs))
 
-            # 处理页脚（如果需要）
-            if not self.config.skip_footers:
-                for section in doc.sections:
-                    for paragraph in section.footer.paragraphs:
-                        if paragraph.text.strip():
-                            for run in paragraph.runs:
-                                if run.text.strip():
-                                    translated_text = await self.translator.translate(run.text, preferences)
-                                    run.text = translated_text
-                                    pbar.update(1)
-                                    if self.progress_tracker:
-                                        self.progress_tracker.update(1)
+        # 收集页脚文本
+        if not self.config.skip_footers:
+            for section in doc.sections:
+                for paragraph in section.footer.paragraphs:
+                    if paragraph.text.strip():
+                        current_texts = []
+                        current_runs = []
+                        for run in paragraph.runs:
+                            if run.text.strip():
+                                current_texts.append(run.text)
+                                current_runs.append(run)
+                        if current_texts:
+                            texts_to_translate.append(" ".join(current_texts))
+                            text_locations.append(('footer', current_runs))
+
+        # 使用进度条显示翻译进度
+        with tqdm(total=len(texts_to_translate), desc=f"正在翻译: {filename}") as pbar:
+            # 批量翻译
+            chunk_size = 10  # 每次翻译10个文本块
+            for i in range(0, len(texts_to_translate), chunk_size):
+                chunk_texts = texts_to_translate[i:i + chunk_size]
+                chunk_locations = text_locations[i:i + chunk_size]
+
+                # 批量翻译
+                translations = await self.translator.batch_translate(chunk_texts, preferences)
+
+                # 更新文档
+                for text, location in zip(translations, chunk_locations):
+                    loc_type, runs = location
+                    # 不再使用分词的方式，而是直接替换整个文本
+                    if len(runs) == 1:
+                        # 如果只有一个run，直接替换
+                        runs[0].text = text
+                    else:
+                        # 如果有多个run，尝试按比例分配翻译后的文本
+                        total_original_length = sum(len(run.text) for run in runs)
+                        if total_original_length == 0:
+                            continue
+                            
+                        # 将翻译后的文本按原文本的长度比例分配给每个run
+                        current_pos = 0
+                        for run in runs:
+                            original_length = len(run.text)
+                            if original_length == 0:
+                                continue
+                                
+                            # 计算这个run应该获得的翻译文本的比例
+                            proportion = original_length / total_original_length
+                            text_length = int(len(text) * proportion)
+                            
+                            # 确保最后一个run获得所有剩余文本
+                            if run is runs[-1]:
+                                run.text = text[current_pos:]
+                            else:
+                                run.text = text[current_pos:current_pos + text_length]
+                                current_pos += text_length
+                
+                # 更新进度条
+                pbar.update(len(chunk_texts))
 
         # 保存文档
         output_buffer = BytesIO()

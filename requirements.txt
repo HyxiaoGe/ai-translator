@@ -19,3 +19,6 @@ pydantic==2.6.1        # For data validation
 
 # AI Alibaba Model
 dashscope==1.20.14
+
+# Retry
+tenacity>=8.0.0
