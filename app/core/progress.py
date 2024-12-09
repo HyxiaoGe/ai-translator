@@ -1,5 +1,3 @@
-# app/core/progress.py
-
 from tqdm import tqdm
 
 

@@ -156,31 +156,29 @@ class Translator:
                               texts: List[str],
                               preferences: Optional[TranslationPreferences] = None,
                               chunk_size: int = 10) -> List[str]:
-        """
-        批量翻译文本
-        
-        参数:
-            texts: 待翻译文本列表
-            preferences: 翻译偏好设置（可选）
-            chunk_size: 每批处理的文本数量
-            
-        返回:
-            List[str]: 翻译结果列表
-        """
+        async def process_chunk(chunk: List[str]) -> List[str]:
+            tasks = [self.translate(text, preferences) for text in chunk]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            processed_results = []
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    self.logger.warning(f"翻译失败: {str(result)}")
+                    try:
+                        result = await self.translate(chunk[i], preferences)
+                        processed_results.append(result)
+                    except Exception as e:
+                        self.logger.error(f"重试翻译失败: {str(e)}")
+                        processed_results.append(chunk[i])  # 失败时返回原文
+                else:
+                    processed_results.append(result)
+
+            return processed_results
+
         results = []
         for i in range(0, len(texts), chunk_size):
             chunk = texts[i:i + chunk_size]
-            chunk_tasks = [self.translate(text, preferences) for text in chunk]
-            chunk_results = await asyncio.gather(*chunk_tasks, return_exceptions=True)
-
-            for j, result in enumerate(chunk_results):
-                if isinstance(result, Exception):
-                    self.logger.warning(f"第{i}批第{j}个文本翻译失败: {str(result)}")
-                    try:
-                        result = await self.translate(texts[i + j], preferences)
-                    except Exception as e:
-                        self.logger.error(f"重试翻译失败: {str(e)}")
-                        result = texts[i + j]  # 失败时返回原文
-                results.append(result)
+            chunk_results = await process_chunk(chunk)
+            results.extend(chunk_results)
 
         return results
