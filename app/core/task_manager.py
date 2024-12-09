@@ -2,12 +2,13 @@ from typing import Dict, Optional
 from dataclasses import dataclass
 from datetime import datetime
 import uuid
-
+from app.utils.logger import setup_logger
 
 @dataclass
 class TranslationTask:
     task_id: str
     file_url: str
+    file_name: str
     status: str  # 'pending', 'processing', 'completed', 'failed'
     progress: float  # 0 to 100
     result_file_path: Optional[str]
@@ -19,11 +20,13 @@ class TranslationTask:
 class TaskManager:
     def __init__(self):
         self.tasks: Dict[str, TranslationTask] = {}
+        self.logger = setup_logger(self.__class__.__name__)
 
     def create_task(self, file_url: str) -> str:
         task_id = str(uuid.uuid4())
         task = TranslationTask(
             task_id=task_id,
+            file_name="",
             file_url=file_url,
             status='pending',
             progress=0.0,
@@ -47,9 +50,10 @@ class TaskManager:
                 self.tasks[task_id].error_message = error_message
             self.tasks[task_id].updated_at = datetime.now()
 
-    def set_result_file(self, task_id: str, file_path: str):
+    def set_result_file(self, task_id: str, file_path: str, file_name: str):
         if task_id in self.tasks:
             self.tasks[task_id].result_file_path = file_path
+            self.tasks[task_id].file_name = file_name
             self.tasks[task_id].updated_at = datetime.now()
 
     def get_task(self, task_id: str) -> Optional[TranslationTask]:

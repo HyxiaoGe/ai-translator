@@ -156,6 +156,7 @@ class Translator:
                               texts: List[str],
                               preferences: Optional[TranslationPreferences] = None,
                               chunk_size: int = 10) -> List[str]:
+        self.logger.info("开始批量翻译...")
         async def process_chunk(chunk: List[str]) -> List[str]:
             tasks = [self.translate(text, preferences) for text in chunk]
             results = await asyncio.gather(*tasks, return_exceptions=True)

@@ -1,0 +1,22 @@
+services:
+  ai-translator:
+    container_name: ai-translator
+    image: yly/ai-translator
+    privileged: true
+    ports:
+      - "8018:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./temp:/ai-translator/temp
+      - ./env:/ai-translator/env
+    restart: unless-stopped
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    deploy:
+      resources:
+        limits:
+          memory: 2G

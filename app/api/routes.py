@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
 
 from app.core import task_manager
 from app.core.file_downloader import FileDownloader
@@ -35,7 +36,7 @@ async def translate_file(
     try:
         # 创建新任务
         task_id = task_manager.create_task(file_url)
-
+        print(f"Created task with ID: {task_id}")
         # 添加后台任务
         background_tasks.add_task(
             process_translation,
@@ -60,7 +61,9 @@ async def translate_file(
 @app.get("/api/tasks/{task_id}")
 async def get_task_status(task_id: str):
     """获取任务状态"""
+    print(f"Checking task ID: {task_id}")
     task = task_manager.get_task(task_id)
+    print(f"Task found: {task is not None}")
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
@@ -78,25 +81,26 @@ async def get_task_status(task_id: str):
     return response
 
 
-# @app.get("/api/download/{task_id}/{filename}")
-# async def download_file(task_id: str, filename: str):
-#     """下载翻译后的文件"""
-#     task = task_manager.get_task(task_id)
-#     if not task:
-#         raise HTTPException(status_code=404, detail="任务不存在")
-#
-#     if task.status != 'completed':
-#         raise HTTPException(status_code=400, detail="任务尚未完成")
-#
-#     file_path = task.result_file_path
-#     if not file_path or not os.path.exists(file_path):
-#         raise HTTPException(status_code=404, detail="文件不存在")
-#
-#     return FileResponse(
-#         file_path,
-#         filename=filename,
-#         media_type='application/octet-stream'
-#     )
+@app.get("/api/download/{task_id}")
+async def download_file(task_id: str):
+    """下载翻译后的文件"""
+    task = task_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if task.status != 'completed':
+        raise HTTPException(status_code=400, detail="任务尚未完成")
+
+    file_path = task.result_file_path
+    file_name = task.file_name
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    return FileResponse(
+        file_path,
+        filename=file_name,
+        media_type='application/octet-stream'
+    )
 
 
 async def process_translation(
@@ -149,7 +153,7 @@ async def process_translation(
 
         # 更新任务状态为完成
         task_manager.update_task_status(task_id, 'completed')
-        task_manager.set_result_file(task_id, output_path)
+        task_manager.set_result_file(task_id, output_path, output_filename)
 
     except Exception as e:
         # 更新任务状态为失败

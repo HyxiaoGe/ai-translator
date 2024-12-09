@@ -61,6 +61,7 @@ class DocParser:
                          filename: Optional[str] = None,
                          output_path: Optional[str] = None,
                          preferences: Optional[TranslationPreferences] = None) -> BytesIO:
+        self.logger.info("开始翻译文档...")
         """
         在文档上直接进行翻译
 
@@ -75,11 +76,14 @@ class DocParser:
         """
         # 打开文档
         doc = Document(doc_source)
+        self.logger.info("文档已打开")
 
         # 获取总运行数并设置进度追踪器
         total_runs = self._count_total_runs(doc)
         if self.progress_tracker:
             self.progress_tracker.set_total(total_runs)
+
+        self.logger.info(f"总运行数: {total_runs}")
 
         # 收集所有需要翻译的文本和位置信息
         texts_to_translate = []
@@ -144,6 +148,8 @@ class DocParser:
                         if current_texts:
                             texts_to_translate.append(" ".join(current_texts))
                             text_locations.append(('footer', current_runs))
+
+        self.logger.info("文本收集完成，准备翻译...")
 
         # 使用进度条显示翻译进度
         with tqdm(total=total_runs, desc=f"正在翻译: {filename}") as pbar:
