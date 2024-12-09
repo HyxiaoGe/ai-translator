@@ -1,20 +1,15 @@
 import asyncio
 import os
-from dataclasses import dataclass
-from typing import List, Dict, Optional
-from dotenv import load_dotenv
+import time
+from typing import List, Optional
+
 import dashscope
-from select import select
+from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+from app.exception.exceptions import DashScopeAPIError, TranslationError
 from app.utils.logger import setup_logger
-
-from .rate_limiter import RateLimiter
 from .translation_preferences import TranslationPreferences
-
-from app.exception.exceptions import DashScopeAPIError, RateLimitExceededError, TranslationError
-
-import time
 
 load_dotenv()
 
@@ -29,7 +24,7 @@ class Translator:
         """
         self.api_key = os.getenv('API_KEY')
         # self.rate_limiter = RateLimiter(max_requests=60)
-          # 使用信号量限制并发请求数
+        # 使用信号量限制并发请求数
         self.semaphore = asyncio.Semaphore(20)  # 同时最多10个请求
         self.last_request_time = time.time()
         self.request_interval = 1.0  # 每个请求之间的最小间隔（秒）
@@ -84,7 +79,7 @@ class Translator:
         wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避，等待时间在4-10秒之间
         retry=retry_if_exception_type((ConnectionError, TimeoutError, DashScopeAPIError)),
         reraise=True
-    )   
+    )
     async def _make_api_call(self, text: str, system_prompt: str) -> str:
         """
         执行API调用
@@ -107,9 +102,9 @@ class Translator:
                 time_since_last = current_time - self.last_request_time
                 if time_since_last < self.request_interval:
                     await asyncio.sleep(self.request_interval - time_since_last)
-                
+
                 self.last_request_time = time.time()
-                
+
                 loop = asyncio.get_event_loop()
                 response = await loop.run_in_executor(
                     None,
@@ -125,12 +120,12 @@ class Translator:
                         timeout=30
                     )
                 )
-                
+
                 if response.status_code == 200:
                     return response.output.choices[0]['message']['content']
                 else:
                     raise DashScopeAPIError(f"API调用失败: {response.status_code} - {response.message}")
-                    
+
             except Exception as e:
                 self.logger.error(f"API调用错误: {str(e)}")
                 raise
@@ -152,16 +147,15 @@ class Translator:
         try:
             system_prompt = self._create_system_prompt(preferences or TranslationPreferences())
             return await self._make_api_call(text, system_prompt)
-            
+
         except Exception as e:
             self.logger.error(f"翻译失败（重试后）: {str(e)}")
             raise TranslationError(f"翻译失败: {str(e)}")
 
-
-    async def batch_translate(self, 
-                            texts: List[str], 
-                            preferences: Optional[TranslationPreferences] = None,
-                            chunk_size: int = 10) -> List[str]:
+    async def batch_translate(self,
+                              texts: List[str],
+                              preferences: Optional[TranslationPreferences] = None,
+                              chunk_size: int = 10) -> List[str]:
         """
         批量翻译文本
         
@@ -178,7 +172,7 @@ class Translator:
             chunk = texts[i:i + chunk_size]
             chunk_tasks = [self.translate(text, preferences) for text in chunk]
             chunk_results = await asyncio.gather(*chunk_tasks, return_exceptions=True)
-            
+
             for j, result in enumerate(chunk_results):
                 if isinstance(result, Exception):
                     self.logger.warning(f"第{i}批第{j}个文本翻译失败: {str(result)}")
@@ -188,5 +182,5 @@ class Translator:
                         self.logger.error(f"重试翻译失败: {str(e)}")
                         result = texts[i + j]  # 失败时返回原文
                 results.append(result)
-                
+
         return results

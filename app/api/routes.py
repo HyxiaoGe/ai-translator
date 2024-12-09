@@ -2,7 +2,6 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from aiohttp.web_fileresponse import FileResponse
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
 
 from app.core import task_manager
@@ -133,7 +132,7 @@ async def process_translation(
 
         # 生成输出文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_filename = f"translated_{timestamp}_{file_name}"
+        output_filename = f"{source_lang}-{target_lang}-{file_name}"
         output_path = os.path.join(TEMP_DIR, output_filename)
 
         # 翻译文档

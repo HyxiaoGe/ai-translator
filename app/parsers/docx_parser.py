@@ -76,6 +76,11 @@ class DocParser:
         # 打开文档
         doc = Document(doc_source)
 
+        # 获取总运行数并设置进度追踪器
+        total_runs = self._count_total_runs(doc)
+        if self.progress_tracker:
+            self.progress_tracker.set_total(total_runs)
+
         # 收集所有需要翻译的文本和位置信息
         texts_to_translate = []
         text_locations = []
@@ -141,7 +146,7 @@ class DocParser:
                             text_locations.append(('footer', current_runs))
 
         # 使用进度条显示翻译进度
-        with tqdm(total=len(texts_to_translate), desc=f"正在翻译: {filename}") as pbar:
+        with tqdm(total=total_runs, desc=f"正在翻译: {filename}") as pbar:
             # 批量翻译
             chunk_size = 10  # 每次翻译10个文本块
             for i in range(0, len(texts_to_translate), chunk_size):
@@ -154,6 +159,9 @@ class DocParser:
                 # 更新文档
                 for text, location in zip(translations, chunk_locations):
                     loc_type, runs = location
+                    # 计算本次更新涉及的run 数量
+                    runs_count = len(runs)
+
                     # 不再使用分词的方式，而是直接替换整个文本
                     if len(runs) == 1:
                         # 如果只有一个run，直接替换
@@ -181,9 +189,11 @@ class DocParser:
                             else:
                                 run.text = text[current_pos:current_pos + text_length]
                                 current_pos += text_length
-                
-                # 更新进度条
-                pbar.update(len(chunk_texts))
+
+                    # 更新进度条和进度追踪器
+                    pbar.update(runs_count)
+                    if self.progress_tracker:
+                        self.progress_tracker.update(runs_count)
 
         # 保存文档
         output_buffer = BytesIO()
