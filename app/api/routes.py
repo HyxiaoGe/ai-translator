@@ -54,7 +54,7 @@ async def translate_file(
             task = task_manager.get_task(task_id)
             return {
                 "task_id": task_id,
-                "status": "completed",
+                "status": task.status,
                 "message": "找到缓存的翻译结果"
             }
 
@@ -79,8 +79,10 @@ async def translate_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/tasks/{task_id}")
-async def get_task_status(task_id: str):
+@app.get("/api/tasks")
+async def get_task_status(
+    task_id: str = Query(..., description="任务ID")
+):
     """获取任务状态"""
     print(f"Checking task ID: {task_id}")
     task = task_manager.get_task(task_id)
@@ -102,8 +104,11 @@ async def get_task_status(task_id: str):
     return response
 
 
-@app.get("/api/download/{task_id}")
-async def download_file(task_id: str):
+@app.get("/api/download")
+async def download_file(
+    task_id: str = Query(..., description="任务ID"),
+    doc_type: str = Query('docx', description="文件类型，目前只支持 docx 和 pdf")
+):
     """下载翻译后的文件"""
     task = task_manager.get_task(task_id)
     if not task:
@@ -112,8 +117,21 @@ async def download_file(task_id: str):
     if task.status != 'completed':
         raise HTTPException(status_code=400, detail="任务尚未完成")
 
-    file_path = task.result_file_path
-    file_name = task.file_name
+    if doc_type.lower() not in ['docx', 'pdf']:
+        # 如果不是支持的类型，使用默认的docx
+        doc_type = 'docx'
+
+    # 获取基础文件名（不含扩展名）
+    base_file_path = os.path.splitext(task.result_file_path)[0]
+    base_file_name = os.path.splitext(task.file_name)[0]
+
+    print(f"Downloading file: {task.result_file_path}")
+    print(f"Base file name: {base_file_name}")
+
+    # 根据doc_type构建完整的文件路径和文件名
+    file_path = f"{base_file_path}.{doc_type.lower()}"
+    file_name = f"{base_file_name}.{doc_type.lower()}"
+
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -175,7 +193,7 @@ async def process_translation(
 
         # 更新任务状态为完成
         task_manager.update_task_status(task_id, 'completed')
-        task_manager.set_result_file(task_id, output_path.replace("docx", "pdf"), output_filename.replace("docx", "pdf"))
+        task_manager.set_result_file(task_id, output_path, output_filename)
 
     except Exception as e:
         # 更新任务状态为失败

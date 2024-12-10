@@ -216,7 +216,7 @@ class DocParser:
             pdf_path = output_path.replace('.docx', '.pdf')
             try:
                 subprocess.run([
-                    '/usr/local/bin/soffice',
+                    '/usr/bin/soffice',
                     '--headless',
                     '--convert-to', 'pdf',
                     '--outdir', str(Path(output_path).parent),

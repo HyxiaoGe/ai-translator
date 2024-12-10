@@ -110,7 +110,7 @@ class Translator:
                     None,
                     lambda: dashscope.Generation.call(
                         api_key=self.api_key,
-                        model='qwen-max',
+                        model='qwen-plus',
                         messages=[
                             {'role': 'system', 'content': system_prompt},
                             {'role': 'user', 'content': text}
