@@ -1,19 +1,24 @@
-import asyncio
-from io import BytesIO
-from docx import Document
-from typing import List, Optional, Union
+import os
 from dataclasses import dataclass
-from app.utils.logger import setup_logger
-from tqdm import tqdm
+from io import BytesIO
+from typing import Optional, Union
 
-from app.core.translator import Translator, TranslationPreferences
+from docx import Document
+from tqdm import tqdm
+import subprocess
+from pathlib import Path
 from app.core.progress import ProgressTracker
+from app.core.translator import Translator, TranslationPreferences
+from app.utils.logger import setup_logger
+
+# from docx2pdf import convert
 
 @dataclass
 class DocParserConfig:
     skip_headers: bool = True
     skip_footers: bool = True
     skip_tables: bool = False
+
 
 class DocParser:
     def __init__(self,
@@ -24,7 +29,6 @@ class DocParser:
         self.config = config or DocParserConfig()
         self.progress_tracker = progress_tracker
         self.logger = setup_logger(self.__class__.__name__)
-
 
     def _count_total_runs(self, doc: Document) -> int:
         """统计文档中需要处理的总runs数"""
@@ -57,10 +61,10 @@ class DocParser:
         return total
 
     async def translate_document(self,
-                         doc_source: Union[str, BytesIO],
-                         filename: Optional[str] = None,
-                         output_path: Optional[str] = None,
-                         preferences: Optional[TranslationPreferences] = None) -> BytesIO:
+                                 doc_source: Union[str, BytesIO],
+                                 filename: Optional[str] = None,
+                                 output_path: Optional[str] = None,
+                                 preferences: Optional[TranslationPreferences] = None) -> BytesIO:
         self.logger.info("开始翻译文档...")
         """
         在文档上直接进行翻译
@@ -201,7 +205,7 @@ class DocParser:
                     if self.progress_tracker:
                         self.progress_tracker.update(runs_count)
 
-        # 保存文档
+        # 保存docx文档
         output_buffer = BytesIO()
         doc.save(output_buffer)
         output_buffer.seek(0)
@@ -209,5 +213,17 @@ class DocParser:
         # 如果指定了输出路径，同时保存到文件
         if output_path:
             doc.save(output_path)
+            pdf_path = output_path.replace('.docx', '.pdf')
+            try:
+                subprocess.run([
+                    '/usr/local/bin/soffice',
+                    '--headless',
+                    '--convert-to', 'pdf',
+                    '--outdir', str(Path(output_path).parent),
+                    output_path
+                ], check=True)
+                self.logger.info(f"PDF转换成功: {pdf_path}")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"PDF转换失败: {e}")
 
         return output_buffer

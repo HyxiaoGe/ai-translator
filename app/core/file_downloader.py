@@ -5,7 +5,7 @@ from io import BytesIO
 from app.utils.logger import setup_logger
 
 class FileDownloader:
-    def __init__(self, base_url: str = "http://192.168.0.196"):
+    def __init__(self, base_url: str = "http://192.168.250.217"):
         self.base_url = base_url
         self.logger = setup_logger(self.__class__.__name__)
 
@@ -50,28 +50,21 @@ class FileDownloader:
 
             return file_uri, file_name
 
-    async def download_file(self, url: str) -> Tuple[BytesIO, str]:
+    async def download_file(self, file_url: str, file_name: str) -> Tuple[BytesIO, str]:
         self.logger.info("开始下载文件....")
         """完整的文件下载流程"""
         try:
-            # 1. 提取参数
-            fc, fi, ct = await self._extract_params(url)
-
-            # 2. 获取文件信息
-            file_uri, file_name = await self._get_file_info(fc, fi, ct)
-
-            # 3. 构造最终的下载URL
-            encoded_filename = quote(file_name)
-            final_url = f"{self.base_url}/{file_uri}&fn={encoded_filename}"
-
             # 4. 下载实际文件
             async with httpx.AsyncClient() as client:
-                self.logger.info("文件下载中....")
-                headers = {'ct': ct}
-                response = await client.get(final_url, headers=headers)
+                self.logger.info(f"文件下载中...., {file_url}")
+                # 清理URL中的换行符和空白字符
+                cleaned_url = file_url.strip()
+                decoded_url = unquote(cleaned_url)
+                self.logger.info(f"编码, {decoded_url}")
+                response = await client.get(decoded_url)
                 response.raise_for_status()
 
-                self.logger.info(f"文件下载成功: {file_name}")
+                self.logger.info(f"文件下载成功...")
 
                 # 返回文件内容和文件名
                 return BytesIO(response.content), file_name

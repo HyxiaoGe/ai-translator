@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
+from starlette.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app.core import task_manager
@@ -13,6 +14,15 @@ from app.core.translator import Translator, TranslationPreferences
 from app.parsers.docx_parser import DocParser
 
 app = FastAPI()
+
+# 允许跨域请求
+app.add_middleware(
+    CORSMiddleware,  # type: ignore
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 获取项目根目录
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -29,19 +39,31 @@ task_manager = TaskManager()
 async def translate_file(
         background_tasks: BackgroundTasks,
         file_url: str = Query(..., description="文件链接"),
+        file_name: str = Query(..., description="文件名"),
         source_lang: str = Query(..., description="源语言"),
         target_lang: str = Query(..., description="目标语言"),
 ):
     """创建翻译任务"""
     try:
-        # 创建新任务
-        task_id = task_manager.create_task(file_url)
-        print(f"Created task with ID: {task_id}")
+        # 创建新任务，并检查缓存
+        task_id, is_cached = task_manager.create_task(file_url, file_name, source_lang, target_lang)
+        print(f"Created/Retrieved task with ID: {task_id}, cached: {is_cached}")
+
+        if is_cached:
+            # 如果是缓存的任务，直接返回任务信息
+            task = task_manager.get_task(task_id)
+            return {
+                "task_id": task_id,
+                "status": "completed",
+                "message": "找到缓存的翻译结果"
+            }
+
         # 添加后台任务
         background_tasks.add_task(
             process_translation,
             task_id,
             file_url,
+            file_name,
             source_lang,
             target_lang
         )
@@ -51,7 +73,6 @@ async def translate_file(
             "status": "pending",
             "message": "任务已创建，正在处理中..."
         }
-
 
     except Exception as e:
 
@@ -70,7 +91,7 @@ async def get_task_status(task_id: str):
     response = {
         "status": task.status,
         "progress": task.progress,
-        "download_url": ""
+        "message": ""
     }
 
     if task.status == 'completed':
@@ -106,6 +127,7 @@ async def download_file(task_id: str):
 async def process_translation(
         task_id: str,
         file_url: str,
+        file_name: str,
         source_lang: str,
         target_lang: str,
 ):
@@ -118,7 +140,7 @@ async def process_translation(
         downloader = FileDownloader()
 
         # 下载文件
-        file_content, file_name = await downloader.download_file(file_url)
+        file_content, file_name = await downloader.download_file(file_url, file_name)
 
         # 创建翻译器和解析器实例
         translator = Translator()
@@ -153,7 +175,7 @@ async def process_translation(
 
         # 更新任务状态为完成
         task_manager.update_task_status(task_id, 'completed')
-        task_manager.set_result_file(task_id, output_path, output_filename)
+        task_manager.set_result_file(task_id, output_path.replace("docx", "pdf"), output_filename.replace("docx", "pdf"))
 
     except Exception as e:
         # 更新任务状态为失败
